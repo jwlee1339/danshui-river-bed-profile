@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>河道斷面底床最低點高程沿程變化圖 (Flot)</title>
+<script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
+<script src="flot/jquery.flot.js"></script>
+<script src="flot/jquery.flot.axislabels.js"></script>
+<script src="flot/jquery.flot.resize.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Microsoft JhengHei', 'Noto Sans TC', 'PingFang TC', 'Heiti TC', sans-serif;
+    background: #f0f2f5; padding: 20px; color: #333;
+}
+h2 { margin-bottom: 16px; font-size: 20px; }
+.controls {
+    background: #fff; padding: 14px 18px; border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12); margin-bottom: 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+}
+.controls label { font-weight: bold; font-size: 14px; white-space: nowrap; }
+.controls select, .controls input[type="number"] {
+    padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;
+}
+.controls button {
+    padding: 6px 22px; background: #2d6a8e; color: #fff; border: none;
+    border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold;
+}
+.controls button:hover { background: #1f4d6e; }
+.controls button#resetZoomBtn {
+    background: #888; padding: 6px 16px;
+}
+.controls button#resetZoomBtn:hover { background: #666; }
+.controls button:disabled {
+    background: #ccc; color: #888; cursor: not-allowed;
+}
+#chart-container {
+    background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    padding: 16px; position: relative;
+}
+#chart { width: 100%; height: 550px; }
+#legend-container {
+    margin-bottom: 8px; min-height: 24px;
+    display: flex; justify-content: flex-end;
+}
+#legend { display: inline-block; }
+#status {
+    margin-top: 12px; padding: 10px 14px; border-radius: 4px; display: none;
+    font-size: 14px;
+}
+#status.error { display: block; background: #fdecea; color: #b71c1c; border: 1px solid #f5c6cb; }
+#status.info  { display: block; background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb; }
+#tooltip {
+    position: fixed; z-index: 1000; display: none;
+    background: #fff; border: 1px solid #999; border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    padding: 8px 10px; font-size: 12px; line-height: 1.4;
+    pointer-events: none; max-width: 240px;
+}
+#tooltip .tt-header { font-weight: bold; font-size: 13px; margin-bottom: 4px; color: #2d6a8e; }
+#tooltip .tt-dist { color: #666; font-weight: normal; font-size: 11px; }
+#tooltip table { border-collapse: collapse; width: 100%; }
+#tooltip th, #tooltip td { padding: 2px 6px; text-align: right; }
+#tooltip th { background: #f5f5f5; font-weight: bold; border-bottom: 1px solid #ccc; }
+#tooltip td:first-child, #tooltip th:first-child { text-align: left; }
+#tooltip tr.missing td { color: #aaa; font-style: italic; }
+#chart-container { position: relative; }
+#zoom-selection {
+    position: absolute; display: none;
+    background: rgba(45, 106, 142, 0.15);
+    border: 1px solid rgba(45, 106, 142, 0.6);
+    pointer-events: none; z-index: 5;
+    top: 0; height: 100%;
+}
+#chart { cursor: crosshair; }
+</style>
+</head>
+<body>
+
+<h2>河道斷面底床最低點高程沿程變化圖</h2>
+
+<div class="controls">
+    <label for="river">河道:</label>
+    <select id="river"></select>
+    <label for="startYear">起始年:</label>
+    <select id="startYear"></select>
+    <label for="endYear">結束年:</label>
+    <select id="endYear"></select>
+    <label for="labelStep">斷面標註間隔:</label>
+    <input type="number" id="labelStep" value="1" min="1" max="50" style="width:64px;">
+    <button id="plotBtn">繪製</button>
+    <button id="resetZoomBtn" disabled>重設縮放</button>
+    <span style="font-size:12px; color:#666; margin-left:8px;">提示：在圖表上水平拖曳可局部放大</span>
+</div>
+
+<div id="chart-container">
+    <div id="zoom-selection"></div>
+    <div id="legend-container"><div id="legend"></div></div>
+    <div id="chart"></div>
+</div>
+<div id="status"></div>
+<div id="tooltip"></div>
+
+<script>
+var RIVERS = [
+    { label: '景美溪(M)',  id: 'M',  path: 'data/\u666f\u7f8e\u6eaa/M_2012-2025_bed_min_profile.csv' },
+    { label: '新店溪(H)',  id: 'H',  path: 'data/\u65b0\u5e97\u6eaa/H_2012-2025_bed_min_profile.csv' },
+    { label: '基隆河(KE)', id: 'KE', path: 'data/\u57fa\u9686\u6cb3/KE_2012-2025_bed_min_profile.csv' },
+    { label: '三峽河(S)',  id: 'S',  path: 'data/\u4e09\u5cfd\u6cb3/S_2012-2025_bed_min_profile.csv' },
+    { label: '淡水河(TE)', id: 'TE', path: 'data/\u6de1\u6c34\u6cb3/TE_2012-2025_bed_min_profile.csv' },
+];
+
+var YEARS = [];
+for (var y = 2012; y <= 2025; y++) YEARS.push(y);
+
+var VIRIDIS = [
+    [68,1,84], [65,35,108], [55,63,123], [42,88,127],
+    [30,111,118], [28,131,102], [53,149,76], [99,164,48],
+    [148,173,24], [199,179,14], [242,187,35], [251,211,84],
+    [251,235,148], [253,245,213]
+];
+
+var cachedData = {};
+var sectionYearZ = {};
+var distanceToSection = {};
+var zoomState = { active: false, xMin: null, xMax: null };
+var currentLabelStep = 1;
+
+function getColor(index, total) {
+    var i = Math.round((index / Math.max(1, total - 1)) * (VIRIDIS.length - 1));
+    i = Math.min(i, VIRIDIS.length - 1);
+    var c = VIRIDIS[i];
+    return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+}
+
+function parseCSV(text) {
+    var lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) throw new Error('CSV 內容為空');
+    var header = lines[0].replace(/^\uFEFF/, '').split(',');
+    var colYear  = header.indexOf('year');
+    var colSect  = header.indexOf('Section_ID');
+    var colDist  = header.indexOf('Cum_Distance');
+    var colZ     = header.indexOf('min_Z');
+    if (colYear < 0 || colSect < 0 || colDist < 0 || colZ < 0)
+        throw new Error('缺少 year/Section_ID/Cum_Distance/min_Z 欄位');
+    var result = [];
+    for (var i = 1; i < lines.length; i++) {
+        var cols = lines[i].split(',');
+        if (cols.length <= Math.max(colYear, colSect, colDist, colZ)) continue;
+        var year  = parseInt(cols[colYear], 10);
+        var dist  = parseFloat(cols[colDist]);
+        var z     = parseFloat(cols[colZ]);
+        if (isNaN(year) || isNaN(dist) || isNaN(z)) continue;
+        result.push({
+            year: year, section: cols[colSect].trim(),
+            distance: dist, minZ: z
+        });
+    }
+    return result;
+}
+
+function showStatus(msg, type) {
+    var el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = type;
+    el.style.display = 'block';
+}
+
+function hideStatus() {
+    var el = document.getElementById('status');
+    el.style.display = 'none';
+    el.className = '';
+}
+
+function plot() {
+    hideStatus();
+    var riverId   = document.getElementById('river').value;
+    var startYear = parseInt(document.getElementById('startYear').value, 10);
+    var endYear   = parseInt(document.getElementById('endYear').value, 10);
+    var labelStep = parseInt(document.getElementById('labelStep').value, 10) || 1;
+
+    if (startYear > endYear) {
+        showStatus('錯誤: 起始年不可大於結束年', 'error');
+        return;
+    }
+
+    var data = cachedData[riverId];
+    if (!data || data.length === 0) {
+        showStatus('無法載入資料檔案，請確認 HTTP server 已啟動', 'error');
+        return;
+    }
+
+    var filtered = data.filter(function(d) {
+        return d.year >= startYear && d.year <= endYear;
+    });
+    if (filtered.length === 0) {
+        showStatus('所選年份範圍內無資料', 'error');
+        return;
+    }
+
+    var groups = {};
+    filtered.forEach(function(d) {
+        if (!groups[d.year]) groups[d.year] = [];
+        groups[d.year].push([d.distance, d.minZ]);
+    });
+    var years = Object.keys(groups).map(Number).sort(function(a, b) { return a - b; });
+
+    var sectionMap = {};
+    data.forEach(function(d) {
+        if (sectionMap[d.section] === undefined)
+            sectionMap[d.section] = d.distance;
+    });
+    var sections = Object.keys(sectionMap).sort(function(a, b) {
+        return sectionMap[a] - sectionMap[b];
+    });
+    currentLabelStep = labelStep;
+
+    var newSectionYearZ = {};
+    var newDistanceToSection = {};
+    filtered.forEach(function(d) {
+        if (!newSectionYearZ[d.section]) newSectionYearZ[d.section] = {};
+        newSectionYearZ[d.section][d.year] = d.minZ;
+        newDistanceToSection[d.distance] = d.section;
+    });
+    sectionYearZ = newSectionYearZ;
+    distanceToSection = newDistanceToSection;
+
+    var series = years.map(function(year, i) {
+        var pts = groups[year].slice().sort(function(a, b) { return a[0] - b[0]; });
+        return {
+            label: String(year),
+            data: pts,
+            color: getColor(i, years.length),
+            lines:  { show: true, lineWidth: 1.8 },
+            points: { show: true, radius: 3, symbol: 'circle' },
+            bars:   { show: false },
+            dashes: { show: false }
+        };
+    });
+
+    var minDist = Infinity, maxDist = -Infinity;
+    filtered.forEach(function(d) {
+        if (d.distance < minDist) minDist = d.distance;
+        if (d.distance > maxDist) maxDist = d.distance;
+    });
+    var distPad = Math.max((maxDist - minDist) * 0.02, 10);
+
+    var xMin = zoomState.active ? zoomState.xMin : (minDist - distPad);
+    var xMax = zoomState.active ? zoomState.xMax : (maxDist + distPad);
+
+    var x2Ticks = [];
+    for (var i = 0; i < sections.length; i++) {
+        var d = sectionMap[sections[i]];
+        if (d < xMin || d > xMax) continue;
+        if (i % labelStep !== 0) continue;
+        x2Ticks.push([d, sections[i]]);
+    }
+
+    var minZ = Infinity, maxZ = -Infinity;
+    filtered.forEach(function(d) {
+        if (d.distance < xMin || d.distance > xMax) return;
+        if (d.minZ < minZ) minZ = d.minZ;
+        if (d.minZ > maxZ) maxZ = d.minZ;
+    });
+    if (!isFinite(minZ)) { minZ = 0; maxZ = 1; }
+    var zPad = Math.max((maxZ - minZ) * 0.1, 0.5);
+
+    $.plot($('#chart'), series, {
+        legend: {
+            show: true,
+            container: $('#legend'),
+            labelBoxBorderColor: '#ccc',
+            noColumns: Math.min(years.length, 7)
+        },
+        xaxis: {
+            min: xMin,
+            max: xMax,
+            axisLabel: '斷面至河道出口累積距離 (m)',
+            axisLabelUseCanvas: true,
+            axisLabelFontSizePixels: 12,
+            axisLabelFontFamily: 'Microsoft JhengHei, sans-serif'
+        },
+        x2axis: {
+            show: true,
+            min: xMin,
+            max: xMax,
+            ticks: x2Ticks,
+            tickLength: 0,
+            axisLabel: '斷面編號',
+            axisLabelUseCanvas: true,
+            axisLabelFontSizePixels: 12,
+            axisLabelFontFamily: 'Microsoft JhengHei, sans-serif'
+        },
+        yaxis: {
+            min: minZ - zPad,
+            max: maxZ + zPad,
+            axisLabel: '斷面底床最低點高程 (m)',
+            axisLabelUseCanvas: true,
+            axisLabelFontSizePixels: 12,
+            axisLabelFontFamily: 'Microsoft JhengHei, sans-serif'
+        },
+        grid: {
+            borderWidth: 1,
+            hoverable: true,
+            clickable: false,
+            autoHighlight: true,
+            mouseActiveRadius: 25,
+            markingsColor: '#eee',
+            markingsLineWidth: 1
+        }
+    });
+
+    bindHover();
+    alignZoomSelectionDiv();
+    document.getElementById('resetZoomBtn').disabled = !zoomState.active;
+}
+
+function alignZoomSelectionDiv() {
+    var chartEl = document.getElementById('chart');
+    var containerEl = document.getElementById('chart-container');
+    var selDiv = document.getElementById('zoom-selection');
+    if (!chartEl || !containerEl || !selDiv) return;
+    var cr = chartEl.getBoundingClientRect();
+    var pr = containerEl.getBoundingClientRect();
+    selDiv.style.top    = (cr.top - pr.top) + 'px';
+    selDiv.style.height = cr.height + 'px';
+}
+
+function setupZoom() {
+    var placeholder = document.getElementById('chart');
+    var selDiv = document.getElementById('zoom-selection');
+    var dragging = false;
+    var startX = 0;
+
+    function getPlot() { return $(placeholder).data('plot'); }
+
+    $(placeholder).on('mousedown.zoom', function(e) {
+        if (e.button !== 0) return;
+        var p = getPlot();
+        if (!p) return;
+        var off = $(placeholder).offset();
+        var x = e.pageX - off.left;
+        var xaxis = p.getAxes().xaxis;
+        var xData = xaxis.c2p(x);
+        if (xData < xaxis.min || xData > xaxis.max) return;
+        dragging = true;
+        startX = x;
+        selDiv.style.left  = x + 'px';
+        selDiv.style.width = '0px';
+        selDiv.style.display = 'block';
+        hideTooltip();
+        e.preventDefault();
+    });
+
+    $(document).on('mousemove.zoom', function(e) {
+        if (!dragging) return;
+        var off = $(placeholder).offset();
+        var x = e.pageX - off.left;
+        var left  = Math.min(startX, x);
+        var width = Math.abs(x - startX);
+        selDiv.style.left  = left + 'px';
+        selDiv.style.width = width + 'px';
+    });
+
+    $(document).on('mouseup.zoom', function(e) {
+        if (!dragging) return;
+        dragging = false;
+        selDiv.style.display = 'none';
+        var off = $(placeholder).offset();
+        var x = e.pageX - off.left;
+        var p = getPlot();
+        if (!p) return;
+        var xaxis = p.getAxes().xaxis;
+        var x1 = xaxis.c2p(Math.min(startX, x));
+        var x2 = xaxis.c2p(Math.max(startX, x));
+        var from = Math.min(x1, x2);
+        var to   = Math.max(x1, x2);
+        var fullRange = xaxis.max - xaxis.min;
+        if (to - from < fullRange * 0.005) return;
+        zoomState.active = true;
+        zoomState.xMin = from;
+        zoomState.xMax = to;
+        plot();
+    });
+}
+
+function showTooltip(pageX, pageY, section, distance, yearZ) {
+    var el = document.getElementById('tooltip');
+    var rowsHtml = '';
+    Object.keys(yearZ).sort().forEach(function(y) {
+        var v = yearZ[y];
+        var valStr = (v === undefined || v === null) ? '—' : v.toFixed(2);
+        var cls = (v === undefined || v === null) ? ' class="missing"' : '';
+        rowsHtml += '<tr' + cls + '><td>' + y + '</td><td>' + valStr + '</td></tr>';
+    });
+    el.innerHTML =
+        '<div class="tt-header">斷面 ' + section +
+        ' <span class="tt-dist">(距出口 ' + distance.toFixed(0) + ' m)</span></div>' +
+        '<table><thead><tr><th>年份</th><th>最低點高程 (m)</th></tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody></table>';
+    el.style.display = 'block';
+    var w = el.offsetWidth, h = el.offsetHeight;
+    var x = pageX + 14;
+    var y = pageY + 14;
+    if (x + w > window.innerWidth - 8)  x = pageX - w - 14;
+    if (y + h > window.innerHeight - 8) y = pageY - h - 14;
+    el.style.left = x + 'px';
+    el.style.top  = y + 'px';
+}
+
+function hideTooltip() {
+    document.getElementById('tooltip').style.display = 'none';
+}
+
+function bindHover() {
+    var placeholder = document.getElementById('chart');
+    $(placeholder).off('plothover');
+    $(placeholder).on('plothover', function(event, pos, item) {
+        if (!item) { hideTooltip(); return; }
+        var dist = item.datapoint[0];
+        var section = distanceToSection[dist];
+        if (!section) { hideTooltip(); return; }
+        var yearZ = sectionYearZ[section] || {};
+        showTooltip(item.pageX, item.pageY, section, dist, yearZ);
+    });
+}
+
+function loadData(riverId, callback) {
+    var river = RIVERS.find(function(r) { return r.id === riverId; });
+    if (!river) return;
+    showStatus('\u6b63\u5728\u8f09\u5165\u8cc7\u6599...', 'info');
+    fetch(river.path)
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.text();
+        })
+        .then(function(text) {
+            cachedData[riverId] = parseCSV(text);
+            hideStatus();
+            if (callback) callback();
+        })
+        .catch(function(e) {
+            showStatus('無法載入資料檔案: ' + e.message, 'error');
+            cachedData[riverId] = [];
+        });
+}
+
+function populateSelect(id, items, defaultVal) {
+    var sel = document.getElementById(id);
+    items.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item.id !== undefined ? item.id
+                  : (item.value !== undefined ? item.value : item);
+        opt.textContent = item.label !== undefined ? item.label : item;
+        sel.appendChild(opt);
+    });
+    if (defaultVal !== undefined) sel.value = defaultVal;
+}
+
+window.addEventListener('load', function() {
+    populateSelect('river', RIVERS, RIVERS[0].id);
+    populateSelect('startYear', YEARS.map(function(y) { return { value: y, label: y }; }), 2012);
+    populateSelect('endYear',   YEARS.map(function(y) { return { value: y, label: y }; }), 2025);
+
+    loadData(RIVERS[0].id, function() { plot(); });
+
+    document.getElementById('plotBtn').addEventListener('click', function() {
+        var riverId = document.getElementById('river').value;
+        zoomState.active = false;
+        if (cachedData[riverId]) {
+            plot();
+        } else {
+            loadData(riverId, function() { plot(); });
+        }
+    });
+
+    document.getElementById('river').addEventListener('change', function() {
+        var riverId = this.value;
+        zoomState.active = false;
+        if (cachedData[riverId]) {
+            plot();
+        } else {
+            loadData(riverId, function() { plot(); });
+        }
+    });
+
+    document.getElementById('startYear').addEventListener('change', function() {
+        zoomState.active = false;
+        plot();
+    });
+    document.getElementById('endYear').addEventListener('change', function() {
+        zoomState.active = false;
+        plot();
+    });
+
+    document.getElementById('resetZoomBtn').addEventListener('click', function() {
+        if (!zoomState.active) return;
+        zoomState.active = false;
+        plot();
+    });
+
+    window.addEventListener('resize', function() {
+        alignZoomSelectionDiv();
+    });
+
+    setupZoom();
+});
+</script>
+
+</body>
+</html>

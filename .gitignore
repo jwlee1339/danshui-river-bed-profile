@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.env
+*.png
+*.csv
+
+# 但保留 data/ 和 cs_property/ 下的 CSV（網頁和 Python 必需）
+!data/**/*.csv
+!cs_property/**/*.csv

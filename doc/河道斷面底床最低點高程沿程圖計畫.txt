@@ -1,0 +1,247 @@
+河道斷面底床最低點高程沿程圖實作計畫
+
+一、專案目標
+
+建立一支 Python 程式，使用 matplotlib 繪製指定河道在多個年份中的「斷面底床最低點高程」沿程變化圖。
+
+圖形定義：
+
+X 軸：斷面至河道出口的累積距離，使用 cs_property\2026_cs.csv 的 Cum_Distance 欄位。
+Y 軸：各斷面的底床最低點高程，也就是該斷面測點資料中的最小 Z 值。
+
+每一個年份繪製一條折線，方便比較不同年份的河床最低點高程變化。
+
+
+二、使用技術
+
+1. Python
+2. pandas
+3. matplotlib
+4. 既有資料庫工具 src.mssql_utils.MssqlUtils
+5. 參考既有程式 get_cross_section.py 的資料庫查詢方式與 matplotlib 中文字型設定方式
+
+
+三、命令列輸入參數
+
+建議新增程式：
+
+plot_river_bed_profile.py
+
+命令格式：
+
+python plot_river_bed_profile.py 河道編號 起始西元年 結束西元年 輸出目錄
+
+範例：
+
+python plot_river_bed_profile.py M 2012 2025 ./output
+
+參數說明：
+
+1. 河道編號
+   例如 M、F、H、KE。
+
+2. 起始西元年
+   例如 2012。
+
+3. 結束西元年
+   例如 2025。
+
+4. 輸出目錄
+   儲存輸出 CSV 與圖檔的資料夾。
+
+
+四、資料來源
+
+1. 斷面基本資料
+
+檔案：
+
+cs_property\2026_cs.csv
+
+使用欄位：
+
+Section_ID：斷面編號
+River_ID：河道編號
+Cum_Distance：斷面至河道出口的累積距離
+
+注意：
+
+原需求曾提到 LMC，但已確認改用 Cum_Distance 作為斷面到河道出口距離。
+
+
+2. 斷面測點資料
+
+資料庫：
+
+Y2012、Y2013、...、Y2025
+
+資料表：
+
+Cross_Section_PT
+
+使用欄位：
+
+Section_ID：斷面編號
+Pt：測點編號
+Y：斷面橫向位置
+Z：測點高程
+
+
+五、處理流程
+
+第 1 步：讀取斷面基本資料
+
+讀取 cs_property\2026_cs.csv。
+
+依照命令列輸入的 River_ID 篩選指定河道。
+
+保留欄位：
+
+Section_ID
+River_ID
+Cum_Distance
+
+依 Cum_Distance 由小到大排序，確保折線圖 X 軸方向正確。
+
+
+第 2 步：逐年取得斷面測點資料
+
+從起始西元年到結束西元年逐年處理。
+
+每一年對應資料庫名稱：
+
+Y{year}
+
+例如：
+
+2012 對應 Y2012
+2025 對應 Y2025
+
+針對該河道的所有 Section_ID，從資料庫取得斷面測點資料。
+
+SQL 查詢概念：
+
+SELECT Section_ID, Pt, Y, Z
+FROM Yxxxx.dbo.Cross_Section_PT
+WHERE Section_ID = :secid
+ORDER BY Section_ID, Y
+
+
+第 3 步：計算每個斷面的最低點高程
+
+每個年份、每個斷面，取 Z 欄位最小值：
+
+min_Z = min(Z)
+
+整理成資料列：
+
+year
+River_ID
+Section_ID
+Cum_Distance
+min_Z
+
+
+第 4 步：彙整所有年份資料
+
+將所有年份、所有斷面的最低點高程整理成一個 DataFrame。
+
+建議輸出 CSV 欄位：
+
+year
+River_ID
+Section_ID
+Cum_Distance
+min_Z
+
+
+第 5 步：繪製折線圖
+
+使用 matplotlib 繪圖。
+
+X 軸：
+
+Cum_Distance，斷面至河道出口的累積距離。
+
+Y 軸：
+
+min_Z，斷面底床最低點高程。
+
+繪圖方式：
+
+每一年一條折線。
+每個斷面位置使用 marker 標示。
+圖例顯示年份。
+加入格線。
+設定中文標題與座標軸名稱。
+
+圖名建議：
+
+{River_ID} 河道斷面底床最低點高程沿程變化 {start_year}-{end_year}
+
+
+第 6 步：輸出成果
+
+輸出 CSV：
+
+{River_ID}_{start_year}-{end_year}_bed_min_profile.csv
+
+輸出圖檔：
+
+{River_ID}_{start_year}-{end_year}_bed_min_profile.png
+
+範例：
+
+M_2012-2025_bed_min_profile.csv
+M_2012-2025_bed_min_profile.png
+
+
+六、錯誤與缺資料處理
+
+程式應處理以下情況：
+
+1. cs_property\2026_cs.csv 不存在
+2. 找不到指定 River_ID
+3. 指定年份資料庫無法連線或不存在
+4. 某一年某個 Section_ID 沒有測點資料
+5. Z 欄位沒有有效數值
+6. 輸出目錄不存在時自動建立
+
+若部分年份或部分斷面缺資料，程式不應直接中斷，應顯示警告並繼續處理可用資料。
+
+
+七、建議檔案結構
+
+plot_river_bed_profile.py
+cs_property\
+  2026_cs.csv
+doc\
+  河道斷面底床最低點高程沿程圖計畫.txt
+output\
+  M_2012-2025_bed_min_profile.csv
+  M_2012-2025_bed_min_profile.png
+
+
+八、測試方式
+
+建議先使用資料量較小或熟悉的河道測試：
+
+python plot_river_bed_profile.py F 2023 2025 ./test_output
+
+檢查項目：
+
+1. 是否成功讀取指定 River_ID 的斷面資料
+2. CSV 是否包含 year、River_ID、Section_ID、Cum_Distance、min_Z
+3. Cum_Distance 是否由小到大排序
+4. 每一年是否產生一條折線
+5. 缺資料時程式是否能繼續執行
+6. 圖檔是否成功輸出
+
+
+九、後續可擴充功能
+
+1. 增加 --distance_column 參數，在 Cum_Distance 與其他距離欄位間切換
+2. 增加 --show 參數，控制是否顯示 matplotlib 視窗
+3. 增加批次繪製多條河道功能
+4. 將缺資料紀錄輸出成 log 或 CSV
+5. 改成一次查詢多個 Section_ID，以提升資料庫查詢效率
