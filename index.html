@@ -75,6 +75,13 @@ h2 { margin-bottom: 16px; font-size: 20px; }
     top: 0; height: 100%;
 }
 #chart { cursor: crosshair; }
+#disclaimer {
+    margin-top: 12px; padding: 10px 14px; border-radius: 4px;
+    background: #fff3cd; border: 1px solid #ffc107; color: #856404;
+    font-size: 13px; line-height: 1.6;
+}
+#disclaimer strong { font-size: 14px; }
+#disclaimer ol { margin: 4px 0 0 20px; padding: 0; }
 </style>
 </head>
 <body>
@@ -101,6 +108,14 @@ h2 { margin-bottom: 16px; font-size: 20px; }
     <div id="chart"></div>
 </div>
 <div id="status"></div>
+<div id="disclaimer">
+    <strong>注意事項</strong>
+    <ol>
+        <li>資料來源：經濟部水利署第十河川分署</li>
+        <li>本程式僅供學術研究與內部使用，請遵守 WRA 資料使用規範</li>
+        <li>請勿對外發表</li>
+    </ol>
+</div>
 <div id="tooltip"></div>
 
 <script>
